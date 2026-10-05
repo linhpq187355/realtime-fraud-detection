@@ -5,6 +5,7 @@ import java.util.List;
 
 public class CardTxHistory {
     private List<WindowTxRecord> transactions = new ArrayList<>();
+    private WindowTxRecord lastTransaction;
 
     public CardTxHistory() {
     }
@@ -19,5 +20,13 @@ public class CardTxHistory {
 
     public void setTransactions(List<WindowTxRecord> transactions) {
         this.transactions = transactions != null ? transactions : new ArrayList<>();
+    }
+
+    public WindowTxRecord getLastTransaction() {
+        return lastTransaction;
+    }
+
+    public void setLastTransaction(WindowTxRecord lastTransaction) {
+        this.lastTransaction = lastTransaction;
     }
 }

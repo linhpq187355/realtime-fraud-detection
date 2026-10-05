@@ -106,12 +106,16 @@ class FeatureStreamsTopologyTest {
         assertEquals(cardId, f1.getCardId());
         assertEquals(1, f1.getSoGiaoDich5Phut(), "T1: count should be 1");
         assertEquals(0, BigDecimal.valueOf(100_000).compareTo(f1.getTongTien1Gio()), "T1: sum should be 100,000");
+        org.junit.jupiter.api.Assertions.assertFalse(f1.isKhoangCachBatThuong(), "T1: no previous transaction, impossible travel is false");
+        org.junit.jupiter.api.Assertions.assertNotNull(f1.getTrungBinhLichSu());
+        org.junit.jupiter.api.Assertions.assertNotNull(f1.getLechSoVoiTrungBinh());
 
         // Verification for T2 (+2 min)
         CardFeatures f2 = captured.get(1);
         assertEquals(cardId, f2.getCardId());
         assertEquals(2, f2.getSoGiaoDich5Phut(), "T2 (+2min): count should be 2");
         assertEquals(0, BigDecimal.valueOf(300_000).compareTo(f2.getTongTien1Gio()), "T2 (+2min): sum should be 300,000");
+        org.junit.jupiter.api.Assertions.assertFalse(f2.isKhoangCachBatThuong(), "T2: same location, not impossible travel");
 
         // Verification for T3 (+6 min)
         CardFeatures f3 = captured.get(2);
@@ -124,5 +128,49 @@ class FeatureStreamsTopologyTest {
         assertEquals(cardId, f4.getCardId());
         assertEquals(1, f4.getSoGiaoDich5Phut(), "T4 (+65min): count should be 1");
         assertEquals(0, BigDecimal.valueOf(200_000).compareTo(f4.getTongTien1Gio()), "T4 (+65min): sum should be 200,000 (150,000 + 50,000)");
+    }
+
+    @Test
+    void testImpossibleTravelDetection() {
+        String cardId = "card-0002";
+        Instant t0 = Instant.parse("2026-09-23T10:00:00Z");
+
+        // T1: Hanoi (21.0285, 105.8542)
+        TransactionEvent tx1 = new TransactionEvent(
+                "tx-hanoi", cardId, BigDecimal.valueOf(100_000), "Shopee",
+                new Location(21.0285, 105.8542), t0
+        );
+        inputTopic.pipeInput(cardId, tx1, t0);
+
+        // T2: HCMC (10.8231, 106.6297) after 10 minutes (approx 1,140 km -> ~6840 km/h > 900 km/h)
+        Instant t1 = t0.plusSeconds(600);
+        TransactionEvent tx2 = new TransactionEvent(
+                "tx-hcmc", cardId, BigDecimal.valueOf(200_000), "Grab",
+                new Location(10.8231, 106.6297), t1
+        );
+        inputTopic.pipeInput(cardId, tx2, t1);
+
+        // T3: HCMC (same city) after 5 minutes -> distance ~ 0 km -> speed 0 <= 900 km/h
+        Instant t2 = t1.plusSeconds(300);
+        TransactionEvent tx3 = new TransactionEvent(
+                "tx-hcmc-2", cardId, BigDecimal.valueOf(150_000), "Circle K",
+                new Location(10.8231, 106.6297), t2
+        );
+        inputTopic.pipeInput(cardId, tx3, t2);
+
+        ArgumentCaptor<CardFeatures> captor = ArgumentCaptor.forClass(CardFeatures.class);
+        verify(mockRedisStore, times(3)).saveFeatures(captor.capture());
+
+        List<CardFeatures> captured = captor.getAllValues();
+        assertEquals(3, captured.size());
+
+        // T1: first tx, no previous tx -> false
+        org.junit.jupiter.api.Assertions.assertFalse(captured.get(0).isKhoangCachBatThuong());
+
+        // T2: Hanoi -> HCMC in 10 mins (>900 km/h) -> true
+        org.junit.jupiter.api.Assertions.assertTrue(captured.get(1).isKhoangCachBatThuong());
+
+        // T3: same location in HCMC -> false
+        org.junit.jupiter.api.Assertions.assertFalse(captured.get(2).isKhoangCachBatThuong());
     }
 }

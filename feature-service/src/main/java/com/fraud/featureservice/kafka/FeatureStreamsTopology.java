@@ -3,6 +3,7 @@ package com.fraud.featureservice.kafka;
 import com.fraud.common.constant.KafkaConstants;
 import com.fraud.common.model.CardFeatures;
 import com.fraud.common.model.TransactionEvent;
+import com.fraud.common.util.HaversineUtil;
 import com.fraud.featureservice.model.CardTxHistory;
 import com.fraud.featureservice.model.WindowTxRecord;
 import com.fraud.featureservice.storage.RedisFeatureStore;
@@ -24,6 +25,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -39,6 +42,7 @@ public class FeatureStreamsTopology {
 
     private final RedisFeatureStore redisFeatureStore;
 
+    @Autowired
     public FeatureStreamsTopology(RedisFeatureStore redisFeatureStore) {
         this.redisFeatureStore = redisFeatureStore;
     }
@@ -66,7 +70,7 @@ public class FeatureStreamsTopology {
                 new FixedKeyProcessorSupplier<String, TransactionEvent, CardFeatures>() {
                     @Override
                     public FixedKeyProcessor<String, TransactionEvent, CardFeatures> get() {
-                        return new WindowFeatureProcessor();
+                        return new WindowFeatureProcessor(redisFeatureStore);
                     }
                 },
                 STORE_NAME
@@ -85,8 +89,13 @@ public class FeatureStreamsTopology {
 
     private static class WindowFeatureProcessor implements FixedKeyProcessor<String, TransactionEvent, CardFeatures> {
 
+        private final RedisFeatureStore redisFeatureStore;
         private KeyValueStore<String, CardTxHistory> stateStore;
         private FixedKeyProcessorContext<String, CardFeatures> context;
+
+        public WindowFeatureProcessor(RedisFeatureStore redisFeatureStore) {
+            this.redisFeatureStore = redisFeatureStore;
+        }
 
         @Override
         public void init(FixedKeyProcessorContext<String, CardFeatures> context) {
@@ -109,18 +118,38 @@ public class FeatureStreamsTopology {
                 history = new CardTxHistory();
             }
 
+            // 5. khoang_cach_bat_thuong: compare with immediately previous transaction in event-time
+            WindowTxRecord prevTx = history.getLastTransaction();
+            boolean khoangCachBatThuong = false;
+            if (prevTx != null && prevTx.getLocation() != null && event.getLocation() != null) {
+                double distanceKm = HaversineUtil.calculateDistanceKm(prevTx.getLocation(), event.getLocation());
+                long elapsedMs = eventTimeMs - prevTx.getTimestampEpochMs();
+                if (elapsedMs <= 0) {
+                    khoangCachBatThuong = distanceKm > 0;
+                } else {
+                    double elapsedHours = elapsedMs / 3_600_000.0;
+                    double impliedSpeedKmH = distanceKm / elapsedHours;
+                    khoangCachBatThuong = impliedSpeedKmH > 900.0;
+                }
+            }
+
             List<WindowTxRecord> records = history.getTransactions();
             if (records == null) {
                 records = new ArrayList<>();
                 history.setTransactions(records);
             }
 
-            // Append current transaction
-            records.add(new WindowTxRecord(
+            // Create and append current transaction
+            WindowTxRecord currentRecord = new WindowTxRecord(
                     event.getTransactionId(),
                     eventTimeMs,
-                    event.getAmount() != null ? event.getAmount() : BigDecimal.ZERO
-            ));
+                    event.getAmount() != null ? event.getAmount() : BigDecimal.ZERO,
+                    event.getLocation()
+            );
+            records.add(currentRecord);
+
+            // Update last transaction on history
+            history.setLastTransaction(currentRecord);
 
             // Sort by event-time to maintain strict ordering
             records.sort(Comparator.comparingLong(WindowTxRecord::getTimestampEpochMs));
@@ -129,27 +158,53 @@ public class FeatureStreamsTopology {
             long oneHourCutoff = eventTimeMs - ONE_HOUR_MS;
             records.removeIf(r -> r.getTimestampEpochMs() < oneHourCutoff);
 
-            // 5-minute window count (including current event)
+            // 1. so_giao_dich_5_phut: 5-minute window count (including current event)
             long fiveMinutesCutoff = eventTimeMs - FIVE_MINUTES_MS;
             long count5Min = records.stream()
                     .filter(r -> r.getTimestampEpochMs() >= fiveMinutesCutoff)
                     .count();
 
-            // 1-hour window sum (including current event)
+            // 2. tong_tien_1_gio: 1-hour window sum (including current event)
             BigDecimal sum1Hour = records.stream()
                     .filter(r -> r.getTimestampEpochMs() >= oneHourCutoff)
                     .map(WindowTxRecord::getAmount)
                     .reduce(BigDecimal.ZERO, BigDecimal::add);
 
-            // Save updated history to state store
+            // Save updated history to internal in-memory state store
             stateStore.put(cardId, history);
+
+            // Atomically sync to Redis ZSET/HASH without overwriting decision-service state
+            if (redisFeatureStore != null) {
+                redisFeatureStore.addAndPruneTransaction(cardId, currentRecord);
+            }
+
+            // 3. trung_binh_lich_su: read from pre-seeded Redis snapshot
+            BigDecimal trungBinhLichSu = BigDecimal.ZERO;
+            if (redisFeatureStore != null) {
+                trungBinhLichSu = redisFeatureStore.getFeatures(cardId)
+                        .map(CardFeatures::getTrungBinhLichSu)
+                        .orElse(BigDecimal.ZERO);
+            }
+
+            // 4. lech_so_voi_trung_binh: (amount - trung_binh_lich_su) / trung_binh_lich_su
+            BigDecimal amount = event.getAmount() != null ? event.getAmount() : BigDecimal.ZERO;
+            BigDecimal lechSoVoiTrungBinh = BigDecimal.ZERO;
+            if (trungBinhLichSu != null && trungBinhLichSu.compareTo(BigDecimal.ZERO) > 0) {
+                lechSoVoiTrungBinh = amount.subtract(trungBinhLichSu)
+                        .divide(trungBinhLichSu, 4, RoundingMode.HALF_UP);
+            }
 
             CardFeatures features = new CardFeatures(
                     cardId,
                     count5Min,
                     sum1Hour,
+                    trungBinhLichSu,
+                    lechSoVoiTrungBinh,
+                    khoangCachBatThuong,
                     event.getTransactionId(),
-                    event.getTimestamp()
+                    event.getTimestamp(),
+                    event.getLocation(),
+                    Instant.now()
             );
 
             context.forward(record.withValue(features));
