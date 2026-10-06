@@ -5,28 +5,32 @@ import com.fraud.common.model.Location;
 import java.math.BigDecimal;
 import java.time.Instant;
 
-public class ManualTransactionRequest {
+public class DecisionCheckRequest {
+    private String transactionId;
     private String cardId;
     private BigDecimal amount;
     private String merchant;
-    private String city;
     private Location location;
     private Instant timestamp;
 
-    public ManualTransactionRequest() {
+    public DecisionCheckRequest() {
     }
 
-    public ManualTransactionRequest(String cardId, BigDecimal amount, String merchant, Location location, Instant timestamp) {
-        this(cardId, amount, merchant, null, location, timestamp);
-    }
-
-    public ManualTransactionRequest(String cardId, BigDecimal amount, String merchant, String city, Location location, Instant timestamp) {
+    public DecisionCheckRequest(String transactionId, String cardId, BigDecimal amount, String merchant, Location location, Instant timestamp) {
+        this.transactionId = transactionId;
         this.cardId = cardId;
         this.amount = amount;
         this.merchant = merchant;
-        this.city = city;
         this.location = location;
         this.timestamp = timestamp;
+    }
+
+    public String getTransactionId() {
+        return transactionId;
+    }
+
+    public void setTransactionId(String transactionId) {
+        this.transactionId = transactionId;
     }
 
     public String getCardId() {
@@ -51,14 +55,6 @@ public class ManualTransactionRequest {
 
     public void setMerchant(String merchant) {
         this.merchant = merchant;
-    }
-
-    public String getCity() {
-        return city;
-    }
-
-    public void setCity(String city) {
-        this.city = city;
     }
 
     public Location getLocation() {
