@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Real-Time Fraud Detection Simulator</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div class="container">
+    <!-- Header -->
+    <header>
+      <div class="logo-group">
+        <h1>
+          FraudGuard Simulator
+          <span class="logo-badge">Real-Time</span>
+        </h1>
+      </div>
+      <div class="system-status">
+        <span><span class="status-dot"></span>Simulator :8080 (Online)</span>
+        <span id="decision-api-status"><span class="status-dot" id="decision-dot"></span>Decision API :8082</span>
+      </div>
+    </header>
+
+    <!-- Error Alert Banner -->
+    <div id="alert-banner" class="alert-banner" style="display: none;">
+      <span id="alert-message">Có lỗi xảy ra khi kết nối hệ thống.</span>
+      <button onclick="dismissAlert()" style="background:none; border:none; color:#fca5a5; cursor:pointer; font-weight:bold;">&times;</button>
+    </div>
+
+    <!-- Stats Counters -->
+    <section class="stats-grid">
+      <div class="stat-card">
+        <span class="stat-label">Tổng giao dịch</span>
+        <span id="stat-total" class="stat-value total">0</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-label">Cho qua (CHO_QUA)</span>
+        <span id="stat-choqua" class="stat-value pass">0</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-label">Xem xét (XEM_XET)</span>
+        <span id="stat-xemxet" class="stat-value review">0</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-label">Bị chặn (CHAN)</span>
+        <span id="stat-chan" class="stat-value block">0</span>
+      </div>
+    </section>
+
+    <!-- Main 2-Column Grid -->
+    <div class="main-layout">
+      <!-- Left Column: Controls (Auto Mode + Manual Tx + Scenarios) -->
+      <div style="display: flex; flex-direction: column; gap: 24px;">
+        
+        <!-- Auto Mode Section -->
+        <div class="card">
+          <div class="card-title">
+            <span>Chế độ tự động (Auto Mode)</span>
+          </div>
+          <div class="auto-mode-box">
+            <div class="auto-controls">
+              <label class="switch-label">
+                <span class="toggle-switch">
+                  <input type="checkbox" id="auto-mode-toggle" onchange="toggleAutoMode(this.checked)">
+                  <span class="slider-round"></span>
+                </span>
+                <span id="auto-mode-status-text">Đang tắt</span>
+              </label>
+
+              <div class="rate-control">
+                <span>Tốc độ: <strong id="rate-display">5</strong> tx/s</span>
+                <input type="range" id="rate-slider" min="1" max="500" value="5" oninput="updateRateDisplay(this.value)" onchange="changeAutoModeRate(this.value)">
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Manual Transaction Form -->
+        <div class="card">
+          <div class="card-title">
+            <span>Gửi giao dịch thủ công (Manual Transaction)</span>
+          </div>
+          <form id="manual-tx-form" onsubmit="submitManualTransaction(event)">
+            <div class="form-grid">
+              <div class="form-group">
+                <label for="card-select">Thẻ (Card ID)</label>
+                <select id="card-select" required>
+                  <option value="" disabled selected>Đang tải danh sách thẻ...</option>
+                </select>
+              </div>
+
+              <div class="form-group">
+                <label for="amount-input">Số tiền (VNĐ)</label>
+                <input type="number" id="amount-input" placeholder="VD: 250000" min="1000" step="1000" required>
+              </div>
+
+              <div class="form-group">
+                <label for="merchant-select">Đơn vị chấp nhận (Merchant)</label>
+                <select id="merchant-select" required>
+                  <option value="Shopee">Shopee</option>
+                  <option value="Grab">Grab</option>
+                  <option value="Circle K">Circle K</option>
+                  <option value="ATM Rút tiền">ATM Rút tiền</option>
+                  <option value="Tiki">Tiki</option>
+                  <option value="Lazada">Lazada</option>
+                  <option value="Starbucks">Starbucks</option>
+                </select>
+              </div>
+
+              <div class="form-group">
+                <label for="city-select">Địa điểm / Thành phố</label>
+                <select id="city-select" required>
+                  <option value="Hà Nội">Hà Nội</option>
+                  <option value="TP.HCM">TP.HCM</option>
+                  <option value="Đà Nẵng">Đà Nẵng</option>
+                  <option value="Hải Phòng">Hải Phòng</option>
+                  <option value="Cần Thơ">Cần Thơ</option>
+                  <option value="Singapore">Singapore</option>
+                  <option value="Tokyo">Tokyo</option>
+                </select>
+              </div>
+
+              <div class="form-group full-width" style="margin-top: 10px;">
+                <button type="submit" id="btn-submit-tx" class="btn btn-primary" style="width: 100%;">
+                  Gửi giao dịch
+                </button>
+              </div>
+            </div>
+          </form>
+        </div>
+
+        <!-- Preset Scenarios Section -->
+        <div class="card">
+          <div class="card-title">
+            <span>Kịch bản gian lận dựng sẵn (Preset Scenarios)</span>
+          </div>
+          <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 12px;">
+            Thử nghiệm nhanh các trường hợp gian lận kinh điển để quan sát phản ứng của hệ thống:
+          </p>
+
+          <div class="scenario-buttons">
+            <button class="btn-scenario" id="btn-scen-rapid" onclick="runScenario('rapid-fire')">
+              <span class="scenario-title">1. Quẹt dồn dập</span>
+              <span class="scenario-desc">10 giao dịch liên tiếp, cùng thẻ. Chặn từ lần thứ 6.</span>
+            </button>
+
+            <button class="btn-scenario" id="btn-scen-travel" onclick="runScenario('impossible-travel')">
+              <span class="scenario-title">2. Impossible Travel</span>
+              <span class="scenario-desc">Hà Nội &rarr; TP.HCM trong 2 phút (1140km). Chặn lần 2.</span>
+            </button>
+
+            <button class="btn-scenario" id="btn-scen-amount" onclick="runScenario('unusual-amount')">
+              <span class="scenario-title">3. Chi tiêu bất thường</span>
+              <span class="scenario-desc">Số tiền gấp 20 lần mức chi tiêu trung bình lịch sử.</span>
+            </button>
+          </div>
+
+          <!-- Scenario execution log & progress -->
+          <div id="scenario-log" class="scenario-log-box">
+            <div class="scenario-progress-bar-container">
+              <div id="scenario-progress-bar" class="scenario-progress-bar"></div>
+            </div>
+            <div id="scenario-status-text" class="scenario-status-text">Đang thực hiện kịch bản...</div>
+            <div id="scenario-details-text" style="color: var(--text-muted); font-size: 0.8rem; margin-bottom: 8px;"></div>
+            <table class="scenario-results-table">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Mã TX</th>
+                  <th>Số tiền</th>
+                  <th>Địa điểm</th>
+                  <th>Quyết định</th>
+                  <th>Quy tắc / Ghi chú</th>
+                </tr>
+              </thead>
+              <tbody id="scenario-results-body">
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Right Column: Latest Decision & Feature Details -->
+      <div style="display: flex; flex-direction: column; gap: 24px;">
+        
+        <div class="card">
+          <div class="card-title">
+            <span>Kết quả quyết định mới nhất (Latest Decision)</span>
+            <span id="decision-latency" style="font-size: 0.8rem; color: var(--text-muted); font-weight: normal;">Độ trễ: -- ms</span>
+          </div>
+
+          <div class="decision-summary-card">
+            <!-- Hero Decision Badge -->
+            <div class="decision-hero">
+              <div>
+                <span style="font-size: 0.8rem; color: var(--text-muted); display: block; margin-bottom: 4px;">TRẠNG THÁI</span>
+                <div id="latest-decision-badge" class="decision-badge-large badge-empty">
+                  CHƯA CÓ GIAO DỊCH
+                </div>
+              </div>
+              <div style="text-align: right;">
+                <span style="font-size: 0.8rem; color: var(--text-muted); display: block; margin-bottom: 4px;">ĐIỂM RỦI RO (ML)</span>
+                <span id="latest-risk-score" style="font-size: 1.3rem; font-weight: 700; color: #fff;">--</span>
+              </div>
+            </div>
+
+            <!-- Meta info: TX ID, Triggered Rule -->
+            <div class="decision-meta">
+              <div class="meta-item">
+                <div class="meta-label">Mã giao dịch</div>
+                <div id="latest-tx-id" class="meta-value" style="font-family: monospace;">--</div>
+              </div>
+              <div class="meta-item">
+                <div class="meta-label">Quy tắc kích hoạt</div>
+                <div id="latest-rule" class="meta-value" style="color: #fca5a5;">Không có (ML Score)</div>
+              </div>
+              <div class="meta-item">
+                <div class="meta-label">Thẻ & Số tiền</div>
+                <div id="latest-card-amount" class="meta-value">--</div>
+              </div>
+              <div class="meta-item">
+                <div class="meta-label">Đơn vị & Địa điểm</div>
+                <div id="latest-merchant-city" class="meta-value">--</div>
+              </div>
+            </div>
+
+            <!-- Features Breakdown -->
+            <div class="features-breakdown">
+              <div class="features-title">Chi tiết 5 đặc trưng tính toán (Feature Snapshot)</div>
+              <div class="features-list">
+                <div class="feat-item">
+                  <span>Số GD trong 5 phút:</span>
+                  <strong id="feat-so-gd">--</strong>
+                </div>
+                <div class="feat-item">
+                  <span>Tổng tiền trong 1 giờ:</span>
+                  <strong id="feat-tong-tien">--</strong>
+                </div>
+                <div class="feat-item">
+                  <span>Trung bình lịch sử:</span>
+                  <strong id="feat-trung-binh">--</strong>
+                </div>
+                <div class="feat-item">
+                  <span>Lệch so với TB (%):</span>
+                  <strong id="feat-lech-tb">--</strong>
+                </div>
+                <div class="feat-item" style="grid-column: span 2;">
+                  <span>Khoảng cách bất thường (&gt;900km/h):</span>
+                  <strong id="feat-khoang-cach">--</strong>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- Live Feed Section -->
+    <div class="card">
+      <div class="feed-header">
+        <div class="card-title" style="margin-bottom: 0;">
+          <span>Nhật ký giao dịch thời gian thực (Live Feed)</span>
+        </div>
+        <div class="feed-polling-indicator">
+          <span class="pulse-dot"></span>
+          <span>Tự động cập nhật mỗi 1s</span>
+          <button onclick="clearLiveFeed()" class="btn" style="padding: 4px 10px; font-size: 0.75rem; background: var(--bg-tertiary); color: var(--text-muted); margin-left: 10px;">Xóa bảng</button>
+        </div>
+      </div>
+
+      <div class="table-wrapper">
+        <table>
+          <thead>
+            <tr>
+              <th>Thời gian</th>
+              <th>Mã giao dịch</th>
+              <th>Thẻ</th>
+              <th>Số tiền</th>
+              <th>Đơn vị</th>
+              <th>Địa điểm</th>
+              <th>Quyết định</th>
+              <th>Điểm ML / Quy tắc</th>
+              <th>Độ trễ</th>
+            </tr>
+          </thead>
+          <tbody id="live-feed-body">
+            <tr>
+              <td colspan="9" class="empty-feed-text">Chưa có giao dịch nào được ghi nhận. Hãy gửi giao dịch thủ công hoặc bật Chế độ tự động.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>
