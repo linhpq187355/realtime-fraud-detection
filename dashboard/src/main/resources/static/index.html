@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FraudGuard — Real-Time Monitoring Dashboard</title>
+  <meta name="description" content="Hệ thống giám sát gian lận giao dịch thời gian thực">
+  <link rel="stylesheet" href="/css/dashboard.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+  <div class="dashboard-container">
+    <!-- Top Header -->
+    <header class="dashboard-header">
+      <div class="brand">
+        <div class="brand-icon">🛡️</div>
+        <div>
+          <h1 class="brand-title">FraudGuard Monitoring</h1>
+          <p class="brand-subtitle">Hệ thống Giám sát Gian lận Thời gian thực</p>
+        </div>
+      </div>
+      <div class="status-bar">
+        <div class="status-indicator">
+          <span class="pulse-dot"></span>
+          <span class="status-text" id="connectionStatus">Đang kết nối...</span>
+        </div>
+        <div class="last-updated" id="lastUpdated">Cập nhật: --:--:--</div>
+      </div>
+    </header>
+
+    <!-- KPI Cards -->
+    <section class="kpi-grid">
+      <div class="kpi-card">
+        <div class="kpi-header">
+          <span class="kpi-title">Tổng Giao dịch (1 Giờ)</span>
+          <span class="kpi-icon">📊</span>
+        </div>
+        <div class="kpi-value" id="kpiTotalTx">0</div>
+        <div class="kpi-subtext" id="kpiBreakdown">CHAN: 0 | XEM_XET: 0 | CHO_QUA: 0</div>
+      </div>
+
+      <div class="kpi-card tps-card">
+        <div class="kpi-header">
+          <span class="kpi-title">Thông lượng Hiện tại</span>
+          <span class="kpi-icon">⚡</span>
+        </div>
+        <div class="kpi-value highlight-cyan" id="kpiTps">0 <span class="kpi-unit">tx/s</span></div>
+        <div class="kpi-subtext">Cửa sổ 1 giây gần nhất</div>
+      </div>
+
+      <div class="kpi-card chan-card">
+        <div class="kpi-header">
+          <span class="kpi-title">Tỷ lệ Chặn (CHAN)</span>
+          <span class="kpi-icon">🚫</span>
+        </div>
+        <div class="kpi-value highlight-red" id="kpiChanRatio">0.0 <span class="kpi-unit">%</span></div>
+        <div class="kpi-subtext" id="kpiChanCount">0 giao dịch bị chặn</div>
+      </div>
+
+      <div class="kpi-card">
+        <div class="kpi-header">
+          <span class="kpi-title">Độ trễ p50 (Median)</span>
+          <span class="kpi-icon">⏱️</span>
+        </div>
+        <div class="kpi-value highlight-blue" id="kpiP50">0 <span class="kpi-unit">ms</span></div>
+        <div class="kpi-subtext">50% giao dịch xử lý dưới mức này</div>
+      </div>
+
+      <div class="kpi-card">
+        <div class="kpi-header">
+          <span class="kpi-title">Độ trễ p99 (Tail)</span>
+          <span class="kpi-icon">🔥</span>
+        </div>
+        <div class="kpi-value highlight-orange" id="kpiP99">0 <span class="kpi-unit">ms</span></div>
+        <div class="kpi-subtext">99% giao dịch xử lý dưới mức này</div>
+      </div>
+    </section>
+
+    <!-- Charts Section -->
+    <section class="charts-grid">
+      <div class="chart-panel">
+        <div class="panel-header">
+          <h2 class="panel-title">Giao dịch / Giây (TPS Trend)</h2>
+          <span class="panel-badge">60s trượt</span>
+        </div>
+        <div class="chart-wrapper">
+          <canvas id="tpsChart"></canvas>
+        </div>
+      </div>
+
+      <div class="chart-panel">
+        <div class="panel-header">
+          <h2 class="panel-title">Tỷ lệ CHAN theo Thời gian (%)</h2>
+          <span class="panel-badge">Tỷ lệ bị chặn</span>
+        </div>
+        <div class="chart-wrapper">
+          <canvas id="chanRatioChart"></canvas>
+        </div>
+      </div>
+
+      <div class="chart-panel chart-panel-full">
+        <div class="panel-header">
+          <h2 class="panel-title">Độ trễ Xử lý p50 & p99 (ms)</h2>
+          <span class="panel-badge">Đo từ Decision API</span>
+        </div>
+        <div class="chart-wrapper">
+          <canvas id="latencyChart"></canvas>
+        </div>
+      </div>
+    </section>
+
+    <!-- Top 10 High Risk Section -->
+    <section class="table-section">
+      <div class="panel-header">
+        <div>
+          <h2 class="panel-title">Top 10 Giao dịch Rủi ro Cao nhất trong 1 Giờ qua</h2>
+          <p class="panel-subtitle">Sắp xếp theo điểm rủi ro và các giao dịch bị rule CHAN chặn</p>
+        </div>
+        <span class="panel-counter" id="riskTableCount">0 giao dịch</span>
+      </div>
+      <div class="table-responsive">
+        <table class="data-table" id="topRiskTable">
+          <thead>
+            <tr>
+              <th>Thời gian</th>
+              <th>Mã GD</th>
+              <th>Thẻ</th>
+              <th>Số tiền</th>
+              <th>Điểm Rủi ro</th>
+              <th>Quyết định</th>
+              <th>Rule Kích hoạt</th>
+              <th>Độ trễ</th>
+            </tr>
+          </thead>
+          <tbody id="topRiskBody">
+            <tr class="empty-row">
+              <td colspan="8">Chưa có giao dịch nào được ghi nhận trong 1 giờ qua.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+
+  <script src="/js/dashboard.js"></script>
+</body>
+</html>
