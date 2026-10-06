@@ -44,3 +44,67 @@ services:
       interval: 5s
       timeout: 3s
       retries: 5
+
+  decision-service:
+    build:
+      context: .
+      dockerfile: decision-service/Dockerfile
+    container_name: decision-service
+    ports:
+      - "8082:8082"
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  feature-service:
+    build:
+      context: .
+      dockerfile: feature-service/Dockerfile
+    container_name: feature-service
+    ports:
+      - "8083:8083"
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+
+  tx-simulator:
+    build:
+      context: .
+      dockerfile: tx-simulator/Dockerfile
+    container_name: tx-simulator
+    ports:
+      - "8080:8080"
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      DECISION_SERVICE_URL: http://decision-service:8082
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      decision-service:
+        condition: service_started
+
+  dashboard:
+    build:
+      context: .
+      dockerfile: dashboard/Dockerfile
+    container_name: dashboard
+    ports:
+      - "8081:8081"
+    environment:
+      SIMULATOR_SERVICE_URL: http://tx-simulator:8080
+    depends_on:
+      tx-simulator:
+        condition: service_started

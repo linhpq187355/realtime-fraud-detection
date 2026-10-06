@@ -144,4 +144,14 @@ class SimulatorControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0]").value("Hà Nội"));
     }
+
+    @Test
+    void shouldGetDecisionsSinceTimestamp() throws Exception {
+        SimulationResult r = new SimulationResult("tx-1", "card-0001", BigDecimal.valueOf(500), "Shopee", "Hà Nội", null, Instant.now(), "CHO_QUA", null, null, null, 2L, "OK");
+        when(liveFeedService.getDecisionsSince(1000L)).thenReturn(List.of(r));
+
+        mockMvc.perform(get("/simulator/decisions").param("sinceTimestamp", "1000"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].transactionId").value("tx-1"));
+    }
 }

@@ -85,6 +85,12 @@ public class SimulatorController {
         return ResponseEntity.ok(liveFeedService.getRecentTransactions());
     }
 
+    @GetMapping("/decisions")
+    public ResponseEntity<List<SimulationResult>> getDecisions(
+            @RequestParam(value = "sinceTimestamp", required = false, defaultValue = "0") long sinceTimestamp) {
+        return ResponseEntity.ok(liveFeedService.getDecisionsSince(sinceTimestamp));
+    }
+
     @GetMapping("/cards")
     public ResponseEntity<List<CardProfile>> getDemoCards() {
         return ResponseEntity.ok(demoCardService.getAllCards());
